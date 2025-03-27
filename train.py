@@ -18,6 +18,21 @@ from tokenizers.pre_tokenizers import Whitespace
 from torch.utils.tensorboard import SummaryWriter
 
 from pathlib import Path
+from torch_lr_finder import LRFinder  # Install: `pip install torch-lr-finder`
+
+def find_optimal_lr(config, model, optimizer, train_dataloader, device, loss_fn):
+    criterion = loss_fn
+    lr_finder = LRFinder(model, optimizer, criterion, device=device)
+    
+    # Run range test (adjust end_lr based on your initial LR)
+    lr_finder.range_test(train_dataloader, end_lr=10, num_iter=100, step_mode='linear')
+    
+    # Get suggested LR (typically the steepest downward slope)
+    best_lr = lr_finder.suggestion()
+    lr_finder.plot()  # Visualize loss vs. LR
+    lr_finder.reset()  # Cleanup
+    
+    return best_lr
 
 def get_all_sentences(ds,lang):
     for item in ds:
@@ -99,8 +114,15 @@ def train_model(config):
         initial_epoch = state['epoch'] + 1
         optimizer.load_state_dict(state['optimizer_state_dict'])
         global_step = state['global_step']
+      
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)    
+
+    if config['find_lr']:
+        best_lr = find_optimal_lr(config, model, optimizer, train_dataloader, device, loss_fn)
+        print(f"Suggested LR: {best_lr}")
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = best_lr  # Update optimizer LR  
 
     for epoch in range(initial_epoch, config['num_epochs']):
         torch.cuda.empty_cache()

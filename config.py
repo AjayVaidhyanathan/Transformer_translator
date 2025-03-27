@@ -4,8 +4,9 @@ def get_config():
         "batch_size": 8,
         "num_epochs": 20,
         "lr": 10**-4,
-        "seq_len": 470,
+        "seq_len": 512,
         "d_model": 512,
+        "find_lr": True, 
         "lang_src": "de",
         "lang_tgt": "en",
         "model_folder": "weights",
@@ -20,3 +21,12 @@ def get_weights_file_path(config, epoch: str):
     model_basename = config['model_basename']
     model_filename = f"{model_basename}{epoch}.pt"
     return str(Path('.') / model_folder / model_filename)
+
+def latest_weights_file_path(config):
+    model_folder = config['model_folder']
+    model_filename = f"{config['model_basename']}*"
+    weights_files = list(Path(model_folder).glob(model_filename))
+    if len(weights_files) == 0:
+        return None
+    weights_files.sort()
+    return str(weights_files[-1])
