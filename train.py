@@ -37,11 +37,14 @@ def get_or_build_tokenizer(config, ds, lang):
     return tokenizer
 
 
-def get_ds(config):
+def get_ds(config, small_batch):
     ds_raw = load_dataset('opus_books', f'{config["lang_src"]}-{config["lang_tgt"]}', split='train')
 
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, config['lang_src'])
     tokenizer_target = get_or_build_tokenizer(config, ds_raw, config['lang_tgt'])
+
+    if small_batch:
+        ds_raw = ds_raw.select(range(50))
 
     train_ds_size = int(0.9 * len(ds_raw))
     val_ds_size = len(ds_raw) - train_ds_size
@@ -74,7 +77,7 @@ def get_model(config, vocab_source_len, vocab_target_len):
     return model
 
 
-def train_model(config):
+def train_model(config, small_batch=False):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}')
@@ -83,7 +86,7 @@ def train_model(config):
     Path(config['model_folder']).mkdir(parents=True, exist_ok=True)
 
 
-    train_dataloader, val_dataloader, tokenizer_src, tokenizer_target = get_ds(config)
+    train_dataloader, val_dataloader, tokenizer_src, tokenizer_target = get_ds(config, small_batch)
     model = get_model(config, tokenizer_src.get_vocab_size(), tokenizer_target.get_vocab_size()).to(device)
 
     writer = SummaryWriter(config['experiment_name'])
@@ -108,6 +111,9 @@ def train_model(config):
         torch.cuda.empty_cache()
         model.train()
         batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
+        total_loss = 0
+        total_accuracy = 0
+        batch_count = 0
         for batch in batch_iterator:
 
             encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
@@ -117,8 +123,6 @@ def train_model(config):
 
             print("Encoder input dtype:", encoder_input.dtype)
             print("Encoder input dtype:", decoder_input.dtype)
-
-
 
             # Run the tensors through the encoder, decoder and the projection layer
             encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
@@ -130,20 +134,37 @@ def train_model(config):
 
             # Compute the loss using a simple cross entropy
             loss = loss_fn(proj_output.view(-1, tokenizer_target.get_vocab_size()), label.view(-1))
+
+            #Accuracy check
+            preds = torch.argmax(proj_output, dim=-1)
+            correct = (preds == label).float().sum()
+            accuracy = correct / label.numel()
+
+            total_loss += loss.item()
+            total_accuracy += accuracy.item()
+            batch_count += 1
+
             batch_iterator.set_postfix({"loss": f"{loss.item():6.3f}"})
 
             # Log the loss
             writer.add_scalar('train loss', loss.item(), global_step)
+            writer.add_scalar('train/accuracy', accuracy.item(), global_step)
             writer.flush()
 
             # Backpropagate the loss
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
 
             # Update the weights
             optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
+            
 
             global_step += 1
+
+        avg_loss = total_loss / batch_count
+        avg_accuracy = total_accuracy / batch_count    
+
+        print(f"Epoch {epoch} - Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}")
 
         model_filename = get_weights_file_path(config, f"{epoch:02d}")
         torch.save({

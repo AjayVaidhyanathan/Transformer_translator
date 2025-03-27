@@ -228,11 +228,8 @@ class Transformer(nn.Module):
           self.projection_layer = projection_layer
 
      def encode(self, source, source_mask):
-          print(f"Initial source dtype: {source.dtype}")  
           source = self.source_embedding(source)
-          print(f"After embedding, source dtype: {source.dtype}")
           source = self.source_position(source)
-          print(f"Calling encode again recursively...")
           return self.encoder(source, source_mask)
      
      def decode(self, encoder_output, source_mask, target, target_mask):

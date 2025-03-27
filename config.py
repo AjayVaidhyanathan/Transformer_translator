@@ -6,7 +6,6 @@ def get_config():
         "lr": 10**-4,
         "seq_len": 512,
         "d_model": 512,
-        "find_lr": True, 
         "lang_src": "de",
         "lang_tgt": "en",
         "model_folder": "weights",
